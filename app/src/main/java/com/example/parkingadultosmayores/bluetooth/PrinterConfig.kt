@@ -1,11 +1,11 @@
 package com.example.parkingadultosmayores.bluetooth
 
 object PrinterConfig {
-    const val MAC = "00:AA:11:BB:22:CC"
-    //const val MAC = "DC:0D:30:CC:8D:5A"
+    //const val MAC = "00:AA:11:BB:22:CC"
+    const val MAC = "DC:0D:30:CC:8D:5A"
 
-    const val SUCU_NAME = "Parking Soprint"
-    const val UBICACION = "Sucre #3-48 y Tomas Ordonez"
-    const val EMAIL = "email: jdmg-12@hotmail.com"
-    const val PHONE = "telefonos:0958935190-0962796375"
+    const val SUCU_NAME = "Las Carabelas"
+    const val UBICACION = "Diego de Almagro y la Pinta"
+    const val EMAIL = "email: achavez0920@hotmail.com"
+    const val PHONE = "telefono:0993403540"
 }

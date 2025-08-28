@@ -46,7 +46,7 @@ fun ControlScreen(onBack: () -> Unit) {
     fun cargarHoy() {
         loading = true
         scope.launch {
-            ingresos = IngresoStore.getThisMonth(context)
+            ingresos = IngresoStore.getToday(context)
             loading = false
         }
     }
@@ -246,19 +246,16 @@ private fun doReprint(
 ) {
     val tarifaTxt = String.format(Locale.getDefault(), "%.2f", record.tarifa)
     val info = buildString {
-        appendLine("Si excede 10 min despues de la hora")
-        appendLine("registrada se cobrara tarifa completa")
-        appendLine("de la siguiente hora. Este ticket")
-        appendLine("acredita el ingreso de su vehiculo y")
-        appendLine("debe ser entregado al momento. La empresa")
-        appendLine("no se responsabiliza por los bienes dejados.")
-        appendLine("Perdida de ticket 3 dolares.")
+        appendLine("Este ticket confirma el ingreso de su")
+        appendLine("vehiculo.Por favor,conservelo y entregelo")
+        appendLine("al momento de su salida.Recuerda que")
+        appendLine("no nos hacemos responsables por objetos")
+        appendLine("dejados dentro del vehiculo")
+        appendLine("*Estamos abiertos las 24 horas*")
+        appendLine("Contamos con 90 plazas disponibles.")
+        appendLine("Llamanos al 0993403540")
         appendLine("")
-        appendLine("Tipo: ${record.tipoVehiculo}  ${record.jornada} - Tarifa: $tarifaTxt")
-        appendLine("ID: ${record.id}")
-        appendLine(PrinterConfig.EMAIL)
-        appendLine(PrinterConfig.PHONE)
-        appendLine("Un gusto servirle")
+        appendLine("Un gusto servirle!")
     }
     setPrinting(record.id)
     scope.launch {

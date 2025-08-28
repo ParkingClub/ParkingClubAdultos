@@ -45,6 +45,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+
 import com.example.parkingadultosmayores.ui.theme.ParkingAdultosMayoresTheme
 import com.example.parkingadultosmayores.ocr.recognizePlateFromBitmap
 import com.example.parkingadultosmayores.ocr.scanQrFromBitmap
@@ -52,12 +53,28 @@ import com.example.parkingadultosmayores.ui.ingreso.IngresoScreen
 import com.example.parkingadultosmayores.ui.control.ControlScreen
 import com.example.parkingadultosmayores.ui.qr.QrScannerScreen
 import com.example.parkingadultosmayores.ui.salida.SalidaScreen
-import com.example.parkingadultosmayores.licensing.ExpirationGate
 
+// ======= NUEVO: imports para expiración y housekeeping =======
+import com.example.parkingadultosmayores.licensing.ExpirationGate
+import com.example.parkingadultosmayores.data.model.IngresoStore
+import kotlinx.coroutines.runBlocking
+// =============================================================
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 1) Chequeo de expiración (si tienes ExpiryGateActivity como LAUNCHER, puedes omitir esto)
+        if (ExpirationGate.isExpired()) {
+            ExpirationGate.showExpiredAndClose(this)
+            return
+        }
+
+        // 2) Housekeeping diario ANTES de montar la UI (borra registros del día anterior)
+        runBlocking {
+            IngresoStore.dailyHousekeeping(applicationContext)
+        }
+
         setContent {
             ParkingAdultosMayoresTheme {
                 AppRoot()

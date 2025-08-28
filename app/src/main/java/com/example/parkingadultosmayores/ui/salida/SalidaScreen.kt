@@ -209,8 +209,14 @@ data class CalculoCobro(
     val horasCobradas: Int,
     val base: Double,
     val total: Double,
-    val horaSalida: String
+    val horaSalida: String,
+    val esTarifaPlana: Boolean
 )
+private fun esTarifaPlana(jornada: String): Boolean {
+    return jornada.equals("Diario", true) ||
+            jornada.equals("Nocturno", true) ||
+            jornada.equals("Completo", true) // legado
+}
 
 private fun calcularCobro(rec: IngresoRecord): CalculoCobro {
     val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -219,31 +225,39 @@ private fun calcularCobro(rec: IngresoRecord): CalculoCobro {
     val minutos = if (entrada != null) ((now.time - entrada.time) / 60000L).coerceAtLeast(0L) else 0L
 
     val base = calcularTarifa(rec.tipoVehiculo, rec.jornada)
-    val horas = if (rec.jornada.equals("Completo", true)) 1
-    else max(1, ceil(minutos / 60.0).toInt())
+    val tarifaPlana = esTarifaPlana(rec.jornada)
 
-    val total = if (rec.jornada.equals("Completo", true)) base else base * horas
+    val horasRedondeadas = max(1, ceil(minutos / 60.0).toInt())
+    val horasCobradas = if (tarifaPlana) 1 else horasRedondeadas.coerceAtMost(6)
+
+    val total = if (tarifaPlana) base else base * horasCobradas
     val horaSalida = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(now)
 
-    return CalculoCobro(minutos, horas, base, total, horaSalida)
+    return CalculoCobro(minutos, horasCobradas, base, total, horaSalida, tarifaPlana)
 }
 
-private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double =
-    when (tipoVehiculo) {
+
+private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
+    return when (tipoVehiculo) {
         "Carro" -> when (jornada) {
-            "Dia" -> 1.0
-            "Noche" -> 2.0
-            "Completo" -> 3.0
-            else -> 0.0
+            "Dia"      -> 1.0
+            "Noche"    -> 1.0
+            "Diario"   -> 3.5
+            "Nocturno" -> 4.0
+            "Completo" -> 3.5 // legado
+            else       -> 0.0
         }
         "Moto" -> when (jornada) {
-            "Dia" -> 0.50
-            "Noche" -> 1.0
-            "Completo" -> 2.0
-            else -> 0.0
+            "Dia"      -> 0.50
+            "Noche"    -> 1.0
+            "Diario"   -> 3.0
+            "Nocturno" -> 3.5
+            "Completo" -> 3.0 // legado
+            else       -> 0.0
         }
         else -> 0.0
     }
+}
 
 @Composable
 private fun ResumenSalida(r: IngresoRecord, c: CalculoCobro) {

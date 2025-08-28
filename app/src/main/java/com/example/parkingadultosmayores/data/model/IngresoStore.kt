@@ -1,4 +1,3 @@
-// file: data/model/IngresoStore.kt
 package com.example.parkingadultosmayores.data.model
 
 import android.content.Context
@@ -18,79 +17,96 @@ private val Context.ingresosDataStore by preferencesDataStore(name = "ingresos_s
 object IngresoStore {
     private val gson = Gson()
 
-    // Cambiamos “día” por “mes”
-    private val LAST_MONTH = stringPreferencesKey("last_month")
-    private fun keyForMonth(month: String) = stringPreferencesKey("ingresos_$month")
+    // Mantiene el último día en el que se guardó algo (yyyy-MM-dd)
+    private val LAST_DAY = stringPreferencesKey("last_day")
+    private fun keyForDay(day: String) = stringPreferencesKey("ingresos_$day")
 
-    /** Agrega un ingreso y limpia el mes anterior si cambió el mes */
+    // --------- API pública ---------
+
+    /** Housekeeping diario: si cambió el día, borra el del día anterior. Llamar al iniciar la app. */
+    suspend fun dailyHousekeeping(context: Context) {
+        context.ingresosDataStore.edit { prefs ->
+            val today = currentDayStr()
+            val last = prefs[LAST_DAY]
+            if (last != null && last != today) {
+                // Borra el bucket del día anterior (el último guardado)
+                prefs.remove(keyForDay(last))
+            }
+            // Actualiza el día visto (no crea bucket aún)
+            prefs[LAST_DAY] = today
+        }
+    }
+
+    /** Agrega un ingreso y, si cambió el día, borra automáticamente el del día anterior. */
     suspend fun add(context: Context, record: IngresoRecord) {
-        // Derivamos el mes a partir de record.fecha ("yyyy-MM-dd"); si falla, usamos el mes actual del dispositivo
-        val month = monthFromDate(record.fecha) ?: currentMonthStr()
+        val day = dayFromDate(record.fecha) ?: currentDayStr()
 
         context.ingresosDataStore.edit { prefs ->
-            val last = prefs[LAST_MONTH]
-            if (last != null && last != month) {
-                // Borra solo el mes inmediatamente anterior guardado
-                prefs.remove(keyForMonth(last))
+            val last = prefs[LAST_DAY]
+            if (last != null && last != day) {
+                // Borra el día anterior guardado
+                prefs.remove(keyForDay(last))
             }
 
-            val list = getListFromPrefs(prefs, month).toMutableList()
+            val list = getListFromPrefs(prefs, day).toMutableList()
             list.add(record)
-            prefs[keyForMonth(month)] = gson.toJson(list)
-            prefs[LAST_MONTH] = month
+            prefs[keyForDay(day)] = gson.toJson(list)
+            prefs[LAST_DAY] = day
         }
     }
 
-    /** Devuelve los ingresos del mes actual (según fecha del dispositivo) */
-    suspend fun getThisMonth(context: Context): List<IngresoRecord> {
-        val month = currentMonthStr()
+    /** Devuelve los ingresos del día actual (según fecha del dispositivo). */
+    suspend fun getToday(context: Context): List<IngresoRecord> {
+        val day = currentDayStr()
         val prefs = context.ingresosDataStore.data.first()
-        return getListFromPrefs(prefs, month)
-    }
-
-    private fun getListFromPrefs(prefs: Preferences, month: String): List<IngresoRecord> {
-        val json = prefs[keyForMonth(month)] ?: return emptyList()
-        val type = object : TypeToken<List<IngresoRecord>>() {}.type
-        return gson.fromJson<List<IngresoRecord>>(json, type) ?: emptyList()
-    }
-
-    private fun currentMonthStr(): String =
-        SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date())
-
-    private fun monthFromDate(dateStr: String): String? {
-        // Esperamos "yyyy-MM-dd" en record.fecha
-        return try {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            sdf.isLenient = false
-            val date = sdf.parse(dateStr)
-            SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(date!!)
-        } catch (_: ParseException) {
-            null
-        }
-    }
-
-    /** Guarda la lista completa para el mes dado (normalmente el actual) */
-    private suspend fun saveListForMonth(ctx: Context, month: String, list: List<IngresoRecord>) {
-        ctx.ingresosDataStore.edit { prefs ->
-            prefs[keyForMonth(month)] = gson.toJson(list)
-            prefs[LAST_MONTH] = month
-        }
+        return getListFromPrefs(prefs, day)
     }
 
     suspend fun getById(ctx: Context, id: String): IngresoRecord? {
-        return getThisMonth(ctx).firstOrNull { it.id == id }
+        return getToday(ctx).firstOrNull { it.id == id }
     }
 
     suspend fun getLatestByPlaca(ctx: Context, placa: String): IngresoRecord? {
         val p = placa.uppercase(Locale.getDefault())
-        return getThisMonth(ctx)
+        return getToday(ctx)
             .filter { it.placa.equals(p, ignoreCase = true) }
             .maxByOrNull { it.hora }
     }
 
     suspend fun removeById(ctx: Context, id: String) {
-        val month = currentMonthStr()
-        val updated = getThisMonth(ctx).filterNot { it.id == id }
-        saveListForMonth(ctx, month, updated)
+        val day = currentDayStr()
+        val updated = getToday(ctx).filterNot { it.id == id }
+        saveListForDay(ctx, day, updated)
+    }
+
+    // --------- Helpers internos ---------
+
+    private fun getListFromPrefs(prefs: Preferences, day: String): List<IngresoRecord> {
+        val json = prefs[keyForDay(day)] ?: return emptyList()
+        val type = object : TypeToken<List<IngresoRecord>>() {}.type
+        return gson.fromJson<List<IngresoRecord>>(json, type) ?: emptyList()
+    }
+
+    private fun currentDayStr(): String =
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+    private fun dayFromDate(dateStr: String): String? {
+        // Esperamos "yyyy-MM-dd" en record.fecha
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            sdf.isLenient = false
+            val date = sdf.parse(dateStr)
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date!!)
+        } catch (_: ParseException) {
+            null
+        }
+    }
+
+    /** Guarda la lista completa para el día dado (normalmente el actual). */
+    private suspend fun saveListForDay(ctx: Context, day: String, list: List<IngresoRecord>) {
+        ctx.ingresosDataStore.edit { prefs ->
+            prefs[keyForDay(day)] = gson.toJson(list)
+            prefs[LAST_DAY] = day
+        }
     }
 }

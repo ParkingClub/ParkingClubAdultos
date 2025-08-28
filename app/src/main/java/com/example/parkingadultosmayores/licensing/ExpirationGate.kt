@@ -1,17 +1,13 @@
-// file: app/src/main/java/com/example/parkingadultosmayores/licensing/ExpirationGate.kt
 package com.example.parkingadultosmayores.licensing
 
 import android.app.Activity
 import android.app.AlertDialog
 
 object ExpirationGate {
-    // EXPIRA AYER (UTC): 2025-08-18 23:59:59Z -> 1755561599000
-    // Para pruebas: así siempre verás el mensaje de “Licencia expirada”.
-    //private const val EXPIRY_EPOCH_MS = 1755561599000L
-    private const val EXPIRY_EPOCH_MS = 1767225599000L
-    //private const val EXPIRY_EPOCH_MS = 1755652320000L
-
-
+    // Válido hasta: 2026-09-30 23:59:59 America/Guayaquil (UTC-05)
+    // Equivale a 2026-10-01 04:59:59Z (UTC) -> epoch ms:
+    // 1790830799000L
+    private const val EXPIRY_EPOCH_MS = 1790830799000L
 
     fun isExpired(): Boolean = System.currentTimeMillis() > EXPIRY_EPOCH_MS
 

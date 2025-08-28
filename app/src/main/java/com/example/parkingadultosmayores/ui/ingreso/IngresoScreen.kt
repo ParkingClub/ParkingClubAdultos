@@ -39,8 +39,8 @@ private fun newTicketId(): String {
     return "$ts-$rnd"
 }
 
-private const val PRINTER_MAC = "00:AA:11:BB:22:CC"
-//private const val PRINTER_MAC = "DC:0D:30:CC:8D:5A"
+//private const val PRINTER_MAC = "00:AA:11:BB:22:CC"
+private const val PRINTER_MAC = "DC:0D:30:CC:8D:5A"
 
 // -------- Pantalla --------
 @Composable
@@ -88,24 +88,21 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
         val hora  = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         val id    = newTicketId()
 
-        val sucuName  = "Parking Soprint"
-        val ubicacion = "Sucre #3-48 y Tomas Ordonez"
+        val sucuName  = "Las Carabelas"
+        val ubicacion = "Diego de Almagro y la Pinta"
         val tarifaTxt = String.format(Locale.getDefault(), "%.2f", tarifa)
 
         val info = buildString {
-            appendLine("Si excede 10 min despues de la hora")
-            appendLine("registrada se cobrara tarifa completa")
-            appendLine("de la siguiente hora. Este ticket")
-            appendLine("acredita el ingreso de su vehiculo")
-            appendLine("y debe ser entregado al momento")
-            appendLine("de su salida. La empresa no se")
-            appendLine("responsabiliza por bienes dejados.")
-            appendLine("Perdida de ticket 3 dolares.")
+            appendLine("Este ticket confirma el ingreso de su")
+            appendLine("vehiculo.Por favor,conservelo y entregelo")
+            appendLine("al momento de su salida.Recuerda que")
+            appendLine("no nos hacemos responsables por objetos")
+            appendLine("dejados dentro del vehiculo")
+            appendLine("*Estamos abiertos las 24 horas*")
+            appendLine("Contamos con 90 plazas disponibles.")
+            appendLine("Llamanos al 0993403540")
             appendLine("")
-            appendLine("Tipo: $tipoVehiculo  $jornada - Tarifa: $tarifaTxt")
-            appendLine("Tel:0958935190-0962796375")
-            appendLine("ID: $id")
-            appendLine("¡Un gusto servirle!")
+            appendLine("Un gusto servirle!")
         }
 
         isPrinting = true
@@ -228,12 +225,20 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                 Spacer(Modifier.height(16.dp)) // Aumentado espacio
 
                 // --- CAMBIO: Selector de Jornada ---
+//                OptionSelector(
+//                    label = "Jornada",
+//                    options = listOf("Dia", "Noche", "Completo"),
+//                    selectedOption = jornada,
+//                    onOptionSelected = { jornada = it }
+//                )
+                // --- Selector de Jornada ---
                 OptionSelector(
                     label = "Jornada",
-                    options = listOf("Dia", "Noche", "Completo"),
+                    options = listOf("Dia", "Noche", "Diario", "Nocturno"),
                     selectedOption = jornada,
                     onOptionSelected = { jornada = it }
                 )
+
 
 
                 Spacer(Modifier.height(6.dp))
@@ -375,20 +380,24 @@ private fun OptionSelector(
 }
 
 
-// --- Lógica de tarifas (sin cambios) ---
+// --- Tarifas base unificadas ---
 private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
     return when (tipoVehiculo) {
         "Carro" -> when (jornada) {
-            "Dia" -> 1.0
-            "Noche" -> 2.0
-            "Completo" -> 3.0
-            else -> 0.0
+            "Dia"      -> 1.0
+            "Noche"    -> 1.0
+            "Diario"   -> 3.5   // tarifa plana
+            "Nocturno" -> 4.0   // tarifa plana
+            "Completo" -> 3.5   // opcional: legado tratado como plana
+            else       -> 0.0
         }
         "Moto" -> when (jornada) {
-            "Dia" -> 0.50
-            "Noche" -> 1.0
-            "Completo" -> 2.0
-            else -> 0.0
+            "Dia"      -> 0.50
+            "Noche"    -> 1.0
+            "Diario"   -> 3.0   // tarifa plana
+            "Nocturno" -> 3.5   // tarifa plana
+            "Completo" -> 3.0   // opcional: legado tratado como plana
+            else       -> 0.0
         }
         else -> 0.0
     }
