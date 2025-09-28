@@ -32,6 +32,8 @@ import com.example.parkingadultosmayores.data.model.IngresoStore
 import kotlin.random.Random
 import androidx.compose.material3.OutlinedTextFieldDefaults
 
+import com.example.parkingadultosmayores.bluetooth.PrinterConfig
+
 // -------- Utilidades --------
 private fun newTicketId(): String {
     val ts = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
@@ -40,9 +42,11 @@ private fun newTicketId(): String {
 }
 
 //private const val PRINTER_MAC = "00:AA:11:BB:22:CC"
-private const val PRINTER_MAC = "DC:0D:30:CC:8D:5A"
+//private const val PRINTER_MAC = "DC:0D:30:A0:78:E6"
+private const val PRINTER_MAC =PrinterConfig.MAC
 
-// -------- Pantalla --------
+
+    // -------- Pantalla --------
 @Composable
 fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
     // Fondo sutil (azules/grises) que funciona en claro/oscuro

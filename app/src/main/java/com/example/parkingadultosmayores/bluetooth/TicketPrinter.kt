@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothSocket
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.nio.charset.Charset
 import java.util.Locale
@@ -95,6 +96,7 @@ suspend fun printTicketIngresoVerbose(
             // Feed
             writeln(); writeln(); writeln()
             out.flush()
+            delay(1000L)
         }
 
         try { socket.close() } catch (_: Exception) {}
@@ -200,6 +202,7 @@ suspend fun printTicketSalidaVerbose(
             // Feed
             writeln(); writeln(); writeln()
             out.flush()
+            delay(1000L)
         }
 
         try { socket.close() } catch (_: Exception) {}
