@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -57,6 +58,7 @@ import com.example.parkingadultosmayores.ui.salida.SalidaScreen
 // ======= NUEVO: imports para expiración y housekeeping =======
 import com.example.parkingadultosmayores.licensing.ExpirationGate
 import com.example.parkingadultosmayores.data.model.IngresoStore
+import com.example.parkingadultosmayores.ui.qr.CameraPrewarmViewModel
 import kotlinx.coroutines.runBlocking
 // =============================================================
 
@@ -64,16 +66,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1) Chequeo de expiración (si tienes ExpiryGateActivity como LAUNCHER, puedes omitir esto)
         if (ExpirationGate.isExpired()) {
             ExpirationGate.showExpiredAndClose(this)
             return
         }
-
-        // 2) Housekeeping diario ANTES de montar la UI (borra registros del día anterior)
-        runBlocking {
-            IngresoStore.dailyHousekeeping(applicationContext)
-        }
+        runBlocking { IngresoStore.dailyHousekeeping(applicationContext) }
 
         setContent {
             ParkingAdultosMayoresTheme {
@@ -87,19 +84,22 @@ class MainActivity : ComponentActivity() {
 fun AppRoot() {
     val nav = rememberNavController()
 
+    // ViewModel que pre-calienta cámara y scanner
+    val camVm: CameraPrewarmViewModel = viewModel()
+
+    // Observa cuando el provider ya está listo (suele estar listo al llegar)
+    val provider by camVm.cameraProvider.collectAsState()
+
     NavHost(navController = nav, startDestination = "menu") {
         composable("menu") { MenuScreen(nav) }
 
-        // Ingreso con arg opcional placa
         composable(
             route = "ingreso?placa={placa}",
-            arguments = listOf(
-                navArgument("placa") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                }
-            )
+            arguments = listOf(navArgument("placa") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            })
         ) { backStack ->
             val placaArg = backStack.arguments?.getString("placa")
             IngresoScreen(placaInicial = placaArg ?: "", onBack = { nav.popBackStack() })
@@ -114,19 +114,24 @@ fun AppRoot() {
                         nav.popBackStack()
                     }
                 },
-                onCancel = { nav.popBackStack() }
+                onCancel = { nav.popBackStack() },
+                externalProvider = provider,             // << usa pre-warm
+                externalScanner = camVm.scanner          // << usa pre-warm
             )
         }
 
         composable(
             route = "salida?id={id}",
-            arguments = listOf(
-                navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null }
-            )
+            arguments = listOf(navArgument("id") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            })
         ) { backStack ->
             val idArg = backStack.arguments?.getString("id")
             SalidaScreen(idInicial = idArg, onBack = { nav.popBackStack() })
         }
+
         composable("control") { ControlScreen(onBack = { nav.popBackStack() }) }
     }
 }
