@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,14 +19,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.example.parkingadultosmayores.data.model.IngresoStore
-import com.example.parkingadultosmayores.data.model.IngresoRecord
 import com.example.parkingadultosmayores.bluetooth.PrinterConfig
 import com.example.parkingadultosmayores.bluetooth.printTicketSalidaVerbose
+import com.example.parkingadultosmayores.data.model.IngresoRecord
+import com.example.parkingadultosmayores.data.model.IngresoStore
+import com.example.parkingadultosmayores.data.model.RecaudacionRecord
+import com.example.parkingadultosmayores.data.model.RecaudacionStore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -46,22 +49,65 @@ fun SalidaScreen(
     var placa by remember { mutableStateOf("") }
     var record by remember { mutableStateOf<IngresoRecord?>(null) }
     var calc by remember { mutableStateOf<CalculoCobro?>(null) }
-    var isPrinting by remember { mutableStateOf(false) }
+
+    // Estado de trabajo para deshabilitar acciones
+    var isWorking by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
-    // Permisos BT (Android 12+)
+    // --- Helpers de lógica ---
+
+    suspend fun registrarRecaudacionYRemover(r: IngresoRecord, c: CalculoCobro): String? {
+        return try {
+            val hoyStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val rec = RecaudacionRecord(
+                id = UUID.randomUUID().toString(),
+                idIngreso = r.id,
+                placa = r.placa,
+                tipoVehiculo = r.tipoVehiculo,
+                jornada = r.jornada,
+                fecha = hoyStr,          // día del cobro
+                horaEntrada = r.hora,    // hora del ingreso
+                horaSalida = c.horaSalida,
+                monto = c.total
+            )
+            RecaudacionStore.add(context, rec)
+            IngresoStore.removeById(context, r.id)
+            null
+        } catch (e: Exception) {
+            e.message ?: "Error desconocido al registrar recaudación"
+        }
+    }
+
+    fun volverAlInicio() {
+        // Hacemos 2 "back" para garantizar regresar al menú
+        scope.launch {
+            onBack()        // salida -> (scanqr o menú)
+            delay(100)
+            onBack()        // si venía de scanqr, ahora -> menú; si ya estaba en menú, no hace nada
+        }
+    }
+
+    // Permisos BT (Android 12+) para la opción "Finalizar e imprimir"
     val requestBtPerms = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
+    ) {
         record?.let { r ->
-            cobrarEImprimir(r, calc, scope, { isPrinting = it }) { ok, msg ->
-                Toast.makeText(
-                    context,
-                    msg ?: if (ok) "Salida impresa" else "Error al imprimir",
-                    Toast.LENGTH_LONG
-                ).show()
-                if (ok) scope.launch { IngresoStore.removeById(context, r.id) }
+            val cNow = calc ?: calcularCobro(r)
+            finalizarEImprimir(r, cNow, setWorking = { isWorking = it }) { ok, msg ->
+                if (ok) {
+                    scope.launch {
+                        val err = registrarRecaudacionYRemover(r, cNow)
+                        if (err == null) {
+                            Toast.makeText(context, msg ?: "Pago finalizado e impreso", Toast.LENGTH_LONG).show()
+                            volverAlInicio()
+                        } else {
+                            Toast.makeText(context, "Impreso, pero no se guardó: $err", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    Toast.makeText(context, msg ?: "No se pudo imprimir", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -79,7 +125,6 @@ fun SalidaScreen(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.systemBars,
         bottomBar = {
-            // Barra inferior: solo se muestra si hay un registro cargado
             if (record != null) {
                 BottomAppBar(
                     containerColor = Color(0xFF2A2E44),
@@ -89,12 +134,38 @@ fun SalidaScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding(), // evita solaparse con barra del sistema
+                            .navigationBarsPadding(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Botón: Finalizar sin impresión
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            enabled = !isWorking && record != null && calc != null,
+                            onClick = {
+                                val r = record!!
+                                val c = calc!!
+                                scope.launch {
+                                    isWorking = true
+                                    val err = registrarRecaudacionYRemover(r, c)
+                                    isWorking = false
+                                    if (err == null) {
+                                        Toast.makeText(context, "Pago finalizado", Toast.LENGTH_LONG).show()
+                                        volverAlInicio()
+                                    } else {
+                                        Toast.makeText(context, "No se pudo finalizar: $err", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(if (isWorking) "Procesando..." else "Finalizar sin impresión")
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
+                        // Botón: Finalizar e imprimir
                         Button(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !isPrinting,
+                            modifier = Modifier.weight(1f),
+                            enabled = !isWorking && record != null && calc != null,
                             onClick = {
                                 val r = record!!
                                 val c = calc!!
@@ -113,28 +184,42 @@ fun SalidaScreen(
                                             )
                                         )
                                     } else {
-                                        cobrarEImprimir(r, c, scope, { isPrinting = it }) { ok, msg ->
-                                            Toast.makeText(
-                                                context,
-                                                msg ?: if (ok) "Salida impresa" else "Error al imprimir",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                            if (ok) scope.launch { IngresoStore.removeById(context, r.id) }
+                                        finalizarEImprimir(r, c, setWorking = { isWorking = it }) { ok, msg ->
+                                            if (ok) {
+                                                scope.launch {
+                                                    val err = registrarRecaudacionYRemover(r, c)
+                                                    if (err == null) {
+                                                        Toast.makeText(context, msg ?: "Pago finalizado e impreso", Toast.LENGTH_LONG).show()
+                                                        volverAlInicio()
+                                                    } else {
+                                                        Toast.makeText(context, "Impreso, pero no se guardó: $err", Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                            } else {
+                                                Toast.makeText(context, msg ?: "No se pudo imprimir", Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                     }
                                 } else {
-                                    cobrarEImprimir(r, c, scope, { isPrinting = it }) { ok, msg ->
-                                        Toast.makeText(
-                                            context,
-                                            msg ?: if (ok) "Salida impresa" else "Error al imprimir",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        if (ok) scope.launch { IngresoStore.removeById(context, r.id) }
+                                    finalizarEImprimir(r, c, setWorking = { isWorking = it }) { ok, msg ->
+                                        if (ok) {
+                                            scope.launch {
+                                                val err = registrarRecaudacionYRemover(r, c)
+                                                if (err == null) {
+                                                    Toast.makeText(context, msg ?: "Pago finalizado e impreso", Toast.LENGTH_LONG).show()
+                                                    volverAlInicio()
+                                                } else {
+                                                    Toast.makeText(context, "Impreso, pero no se guardó: $err", Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        } else {
+                                            Toast.makeText(context, msg ?: "No se pudo imprimir", Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 }
                             }
                         ) {
-                            Text(if (isPrinting) "Imprimiendo..." else "Cobrar e imprimir")
+                            Text(if (isWorking) "Imprimiendo..." else "Finalizar e imprimir")
                         }
                     }
                 }
@@ -151,8 +236,8 @@ fun SalidaScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(16.dp)
-                    .verticalScroll(scrollState) // <- hace la pantalla deslizable
-                    .imePadding(),               // <- evita que el teclado tape campos
+                    .verticalScroll(scrollState)
+                    .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 TextButton(onClick = onBack) { Text("◀ Atrás", color = Color(0xFFB9BFD6)) }
@@ -169,7 +254,11 @@ fun SalidaScreen(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = {
-                        val placaTxt = placa
+                        val placaTxt = placa.trim()
+                        if (placaTxt.isEmpty()) {
+                            Toast.makeText(context, "Ingresa una placa para buscar", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
                         scope.launch {
                             val r = IngresoStore.getLatestByPlaca(context, placaTxt)
                             record = r
@@ -193,9 +282,7 @@ fun SalidaScreen(
                     val r = record!!
                     val c = calc!!
                     ResumenSalida(r, c)
-
-                    // Deja espacio al final para que el contenido no quede oculto detrás de la BottomAppBar
-                    Spacer(Modifier.height(100.dp))
+                    Spacer(Modifier.height(100.dp)) // espacio para BottomAppBar
                 }
             }
         }
@@ -212,6 +299,7 @@ data class CalculoCobro(
     val horaSalida: String,
     val esTarifaPlana: Boolean
 )
+
 private fun esTarifaPlana(jornada: String): Boolean {
     return jornada.equals("Diario", true) ||
             jornada.equals("Nocturno", true) ||
@@ -235,7 +323,6 @@ private fun calcularCobro(rec: IngresoRecord): CalculoCobro {
 
     return CalculoCobro(minutos, horasCobradas, base, total, horaSalida, tarifaPlana)
 }
-
 
 private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
     return when (tipoVehiculo) {
@@ -274,11 +361,10 @@ private fun ResumenSalida(r: IngresoRecord, c: CalculoCobro) {
 
 /* ---------- Impresión de salida ---------- */
 
-private fun cobrarEImprimir(
+private fun finalizarEImprimir(
     rec: IngresoRecord,
     calc: CalculoCobro?,
-    scope: kotlinx.coroutines.CoroutineScope,
-    setPrinting: (Boolean) -> Unit,
+    setWorking: (Boolean) -> Unit,
     onDone: (Boolean, String?) -> Unit
 ) {
     val c = calc ?: calcularCobro(rec)
@@ -290,8 +376,10 @@ private fun cobrarEImprimir(
         appendLine("Gracias por su visita!")
     }
 
-    setPrinting(true)
-    scope.launch {
+    setWorking(true)
+    // La impresión se hace en background
+    // Cuando termine, devolvemos el resultado por onDone
+    kotlinx.coroutines.GlobalScope.launch {
         val (ok, err) = printTicketSalidaVerbose(
             macAddress = PrinterConfig.MAC,
             sucuName = PrinterConfig.SUCU_NAME,
@@ -304,7 +392,7 @@ private fun cobrarEImprimir(
             info = info,
             qrData = rec.id
         )
-        setPrinting(false)
+        setWorking(false)
         onDone(ok, err)
     }
 }

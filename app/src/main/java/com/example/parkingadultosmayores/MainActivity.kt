@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.CarCrash
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.List
@@ -58,7 +59,9 @@ import com.example.parkingadultosmayores.ui.salida.SalidaScreen
 // ======= NUEVO: imports para expiración y housekeeping =======
 import com.example.parkingadultosmayores.licensing.ExpirationGate
 import com.example.parkingadultosmayores.data.model.IngresoStore
+import com.example.parkingadultosmayores.data.model.RecaudacionStore   // <- NUEVO
 import com.example.parkingadultosmayores.ui.qr.CameraPrewarmViewModel
+import com.example.parkingadultosmayores.ui.recaudaciones.RecaudacionesScreen // <- NUEVO
 import kotlinx.coroutines.runBlocking
 // =============================================================
 
@@ -70,7 +73,12 @@ class MainActivity : ComponentActivity() {
             ExpirationGate.showExpiredAndClose(this)
             return
         }
-        runBlocking { IngresoStore.dailyHousekeeping(applicationContext) }
+
+        // Housekeeping diario: Ingresos + Recaudaciones (bucket del día)
+        runBlocking {
+            IngresoStore.dailyHousekeeping(applicationContext)
+            RecaudacionStore.dailyHousekeeping(applicationContext) // <- NUEVO
+        }
 
         setContent {
             ParkingAdultosMayoresTheme {
@@ -133,6 +141,11 @@ fun AppRoot() {
         }
 
         composable("control") { ControlScreen(onBack = { nav.popBackStack() }) }
+
+        // -------- NUEVO: ruta para la pantalla de Recaudaciones del día --------
+        composable("recaudaciones") {
+            RecaudacionesScreen(onBack = { nav.popBackStack() })
+        }
     }
 }
 
@@ -224,6 +237,13 @@ fun MenuScreen(nav: NavHostController) {
                     subtitle = "Ver ingresos de hoy",
                     icon = Icons.Filled.List,
                     onClick = { nav.navigate("control") }
+                ),
+                // ---- NUEVO: acceso a Recaudaciones del día ----
+                MenuItem(
+                    title = "Recaudaciones",
+                    subtitle = "Cobros del día",
+                    icon = Icons.Filled.AttachMoney,
+                    onClick = { nav.navigate("recaudaciones") }
                 ),
             )
 

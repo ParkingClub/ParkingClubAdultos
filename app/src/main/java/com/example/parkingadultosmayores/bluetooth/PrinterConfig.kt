@@ -2,9 +2,9 @@ package com.example.parkingadultosmayores.bluetooth
 
 object PrinterConfig {
     // Mac de impresora Portatil
-    //const val MAC = "00:AA:11:BB:22:CC"
+    const val MAC = "00:AA:11:BB:22:CC"
     // Mac de impresora Omar
-    const val MAC = "DC:0D:30:A0:78:E6"
+    //const val MAC = "DC:0D:30:A0:78:E6"
     // Mac de impresora Trabajo Viejita
     //const val MAC = "DC:0D:30:CC:8D:5A"
     // Mac de Don Alonso
