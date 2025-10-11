@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.parkingadultosmayores.bluetooth.printTicketIngresoVerbose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -31,7 +34,6 @@ import com.example.parkingadultosmayores.data.model.IngresoRecord
 import com.example.parkingadultosmayores.data.model.IngresoStore
 import kotlin.random.Random
 import androidx.compose.material3.OutlinedTextFieldDefaults
-
 import com.example.parkingadultosmayores.bluetooth.PrinterConfig
 
 // -------- Utilidades --------
@@ -41,30 +43,26 @@ private fun newTicketId(): String {
     return "$ts-$rnd"
 }
 
-//private const val PRINTER_MAC = "00:AA:11:BB:22:CC"
-//private const val PRINTER_MAC = "DC:0D:30:A0:78:E6"
-private const val PRINTER_MAC =PrinterConfig.MAC
+// Usamos la MAC desde la configuración central
+private const val PRINTER_MAC = PrinterConfig.MAC
 
-
-    // -------- Pantalla --------
+// -------- Pantalla --------
 @Composable
 fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
-    // Fondo sutil (azules/grises) que funciona en claro/oscuro
+    // Fondo
     val bg = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF111827), // gris azulado profundo
-            Color(0xFF0B1220)  // casi negro azulado
+            Color(0xFF111827),
+            Color(0xFF0B1220)
         )
     )
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Colores adaptativos basados en el tema actual
     val scheme = MaterialTheme.colorScheme
     val fieldShape = RoundedCornerShape(14.dp)
 
-    // Campos con contenedor suave y texto de alto contraste
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedContainerColor   = scheme.surfaceVariant.copy(alpha = 0.9f),
         unfocusedContainerColor = scheme.surfaceVariant.copy(alpha = 0.75f),
@@ -79,12 +77,22 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
     )
 
     var placa by remember(placaInicial) { mutableStateOf(placaInicial) }
-    var tipoVehiculo by remember { mutableStateOf("Carro") } // Por defecto "Carro" seleccionado
-    var jornada by remember { mutableStateOf("Dia") } // Por defecto "Dia" seleccionado
+    var tipoVehiculo by remember { mutableStateOf("Carro") } // Por defecto "Carro"
+    var jornada by remember { mutableStateOf("Dia") }        // Por defecto "Dia"
     var isPrinting by remember { mutableStateOf(false) }
-    var showResult by remember { mutableStateOf<Boolean?>(null) } // null = no mostrar
+
+    // NUEVO: indicador de éxito para mostrar el mensaje y volver al inicio
+    var showSuccess by remember { mutableStateOf(false) }
 
     val tarifa = remember(tipoVehiculo, jornada) { calcularTarifa(tipoVehiculo, jornada) }
+
+    // Al activar showSuccess, esperamos un instante y regresamos al inicio
+    LaunchedEffect(showSuccess) {
+        if (showSuccess) {
+            delay(1200)          // tiempo para ver el “visto”
+            onBack()             // regresar a la pantalla de inicio
+        }
+    }
 
     // --- Función que arma datos y lanza impresión (usa versión VERBOSE) ---
     val lanzarImpresion: () -> Unit = {
@@ -92,21 +100,15 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
         val hora  = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         val id    = newTicketId()
 
-        val sucuName  = "Las Carabelas"
-        val ubicacion = "Diego de Almagro y la Pinta"
-        val tarifaTxt = String.format(Locale.getDefault(), "%.2f", tarifa)
+        // Datos desde PrinterConfig
+        val sucuName  = PrinterConfig.SUCU_NAME
+        val ubicacion = PrinterConfig.UBICACION
 
         val info = buildString {
-            appendLine("Este ticket confirma el ingreso de su")
-            appendLine("vehiculo.Por favor,conservelo y entregelo")
-            appendLine("al momento de su salida.Recuerda que")
-            appendLine("no nos hacemos responsables por objetos")
-            appendLine("dejados dentro del vehiculo")
-            appendLine("*Estamos abiertos las 24 horas*")
-            appendLine("Contamos con 90 plazas disponibles.")
-            appendLine("Llamanos al 0993403540")
-            appendLine("")
-            appendLine("Un gusto servirle!")
+            appendLine("Tipo: $tipoVehiculo  ·  Jornada: $jornada")
+            appendLine("Tarifa base: $ ${String.format(Locale.getDefault(), "%.2f", tarifa)}")
+            appendLine("--------------------------------")
+            appendLine(PrinterConfig.INFO_INGRESO)
         }
 
         isPrinting = true
@@ -122,10 +124,11 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                 qrData = id
             )
             isPrinting = false
-            showResult = ok
-            if (!ok && errorMsg != null) {
-                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-            } else if (ok) {
+
+            if (!ok) {
+                Toast.makeText(context, errorMsg ?: "No se pudo imprimir", Toast.LENGTH_LONG).show()
+            } else {
+                // Guardar el registro de ingreso
                 val record = IngresoRecord(
                     id = id,
                     placa = placa,
@@ -136,6 +139,9 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                     hora = hora
                 )
                 IngresoStore.add(context, record)
+
+                // Mostrar mensaje de éxito y luego regresar
+                showSuccess = true
             }
         }
     }
@@ -149,7 +155,6 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
         if (okConnect && okScan) {
             lanzarImpresion()
         } else {
-            showResult = false
             Toast.makeText(context, "Permisos Bluetooth denegados", Toast.LENGTH_LONG).show()
         }
     }
@@ -165,7 +170,7 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.Center, // centrado vertical
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Tarjeta central
@@ -216,9 +221,9 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                     shape = fieldShape
                 )
 
-                Spacer(Modifier.height(16.dp)) // Aumentado espacio
+                Spacer(Modifier.height(16.dp))
 
-                // --- CAMBIO: Selector de Tipo de Vehículo ---
+                // --- Selector de Tipo de Vehículo ---
                 OptionSelector(
                     label = "Tipo de vehículo",
                     options = listOf("Carro", "Moto"),
@@ -226,15 +231,8 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                     onOptionSelected = { tipoVehiculo = it }
                 )
 
-                Spacer(Modifier.height(16.dp)) // Aumentado espacio
+                Spacer(Modifier.height(16.dp))
 
-                // --- CAMBIO: Selector de Jornada ---
-//                OptionSelector(
-//                    label = "Jornada",
-//                    options = listOf("Dia", "Noche", "Completo"),
-//                    selectedOption = jornada,
-//                    onOptionSelected = { jornada = it }
-//                )
                 // --- Selector de Jornada ---
                 OptionSelector(
                     label = "Jornada",
@@ -243,13 +241,11 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                     onOptionSelected = { jornada = it }
                 )
 
-
-
                 Spacer(Modifier.height(6.dp))
 
                 // Tarifa
                 AssistChip(
-                    onClick = { /* info si quieres */ },
+                    onClick = { /* info opcional */ },
                     label = {
                         Text(
                             "Tarifa: $ ${String.format(Locale.getDefault(), "%.2f", tarifa)}",
@@ -311,24 +307,46 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
             ) { CircularProgressIndicator() }
         }
 
-        // Resultado
-        showResult?.let { ok ->
-            AlertDialog(
-                onDismissRequest = { showResult = null },
-                title = { Text(if (ok) "Impresión completada" else "Error de impresión") },
-                text = {
-                    if (ok) Text("Se envió el ticket a la impresora.")
-                    else    Text("No se pudo imprimir. Verifica que la impresora esté encendida y emparejada.")
-                },
-                confirmButton = { TextButton(onClick = { showResult = null }) { Text("Aceptar") } }
-            )
+        // NUEVO: Mensaje de éxito con ícono de visto (se cierra solo y navega atrás)
+        if (showSuccess) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = Color(0xFF1E293B),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 0.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Éxito",
+                            tint = Color(0xFF22C55E),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text("Registro exitoso", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "El ingreso fue registrado e impreso correctamente.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFB9BFD6)
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * --- NUEVO COMPONENTE REUTILIZABLE ---
- * Un selector de opciones con botones que se adapta al estilo de la app.
+ * --- Componente reutilizable ---
  */
 @Composable
 private fun OptionSelector(
@@ -340,38 +358,32 @@ private fun OptionSelector(
     val scheme = MaterialTheme.colorScheme
 
     Column(Modifier.fillMaxWidth()) {
-        // Etiqueta (Label) que imita el estilo de OutlinedTextField
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
             color = scheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
         )
-
-        // Fila con los botones de selección
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp) // Espacio entre botones
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             options.forEach { option ->
                 val isSelected = option == selectedOption
-
-                // Determina los colores según si el botón está seleccionado o no
                 val buttonColors = if (isSelected) {
                     ButtonDefaults.buttonColors(
-                        containerColor = scheme.primary, // Color principal para el seleccionado
+                        containerColor = scheme.primary,
                         contentColor = scheme.onPrimary
                     )
                 } else {
                     ButtonDefaults.buttonColors(
-                        containerColor = scheme.surfaceVariant.copy(alpha = 0.75f), // Color sutil para los no seleccionados
+                        containerColor = scheme.surfaceVariant.copy(alpha = 0.75f),
                         contentColor = scheme.onSurfaceVariant
                     )
                 }
-
                 Button(
                     onClick = { onOptionSelected(option) },
-                    modifier = Modifier.weight(1f), // Hace que todos los botones ocupen el mismo espacio
+                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = buttonColors,
                     contentPadding = PaddingValues(vertical = 12.dp)
@@ -383,7 +395,6 @@ private fun OptionSelector(
     }
 }
 
-
 // --- Tarifas base unificadas ---
 private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
     return when (tipoVehiculo) {
@@ -392,7 +403,7 @@ private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
             "Noche"    -> 1.0
             "Diario"   -> 3.5   // tarifa plana
             "Nocturno" -> 4.0   // tarifa plana
-            "Completo" -> 3.5   // opcional: legado tratado como plana
+            "Completo" -> 3.5
             else       -> 0.0
         }
         "Moto" -> when (jornada) {
@@ -400,7 +411,7 @@ private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
             "Noche"    -> 1.0
             "Diario"   -> 3.0   // tarifa plana
             "Nocturno" -> 3.5   // tarifa plana
-            "Completo" -> 3.0   // opcional: legado tratado como plana
+            "Completo" -> 3.0
             else       -> 0.0
         }
         else -> 0.0

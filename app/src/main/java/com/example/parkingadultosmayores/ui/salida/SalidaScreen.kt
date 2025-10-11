@@ -327,19 +327,17 @@ private fun calcularCobro(rec: IngresoRecord): CalculoCobro {
 private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
     return when (tipoVehiculo) {
         "Carro" -> when (jornada) {
-            "Dia"      -> 1.0
+            "Dia"      -> 0.75
             "Noche"    -> 1.0
-            "Diario"   -> 3.5
-            "Nocturno" -> 4.0
-            "Completo" -> 3.5 // legado
+            "Diario"   -> 5.0
+            "Nocturno" -> 5.0
             else       -> 0.0
         }
         "Moto" -> when (jornada) {
-            "Dia"      -> 0.50
+            "Dia"      -> 0.75
             "Noche"    -> 1.0
-            "Diario"   -> 3.0
-            "Nocturno" -> 3.5
-            "Completo" -> 3.0 // legado
+            "Diario"   -> 5.0
+            "Nocturno" -> 5.0
             else       -> 0.0
         }
         else -> 0.0

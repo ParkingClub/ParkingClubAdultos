@@ -15,7 +15,109 @@ private const val TAG = "BT_PRINT"
 private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 private val UTF8: Charset = Charsets.UTF_8
 
-/** ---------- Ticket de INGRESO ---------- */
+/** ===========================================================
+ *                 UTILIDADES DE FORMATO ESC/POS
+ *  =========================================================== */
+private object EscPos {
+    const val ESC: Byte = 0x1B
+    const val GS:  Byte = 0x1D
+
+    val ALIGN_LEFT   = byteArrayOf(ESC, 0x61, 0x00)
+    val ALIGN_CENTER = byteArrayOf(ESC, 0x61, 0x01)
+    val ALIGN_RIGHT  = byteArrayOf(ESC, 0x61, 0x02)
+
+    val BOLD_ON  = byteArrayOf(ESC, 0x45, 0x01)
+    val BOLD_OFF = byteArrayOf(ESC, 0x45, 0x00)
+
+    // Tamaños: 0x1D, 0x21, n  (n: 0 normal, 0x01 ancho x2, 0x10 alto x2, 0x11 ambos)
+    fun size(n: Int) = byteArrayOf(GS, 0x21, n.toByte())
+
+    // Fuente pequeña/estándar (no todas las impresoras lo respetan)
+    val FONT_SMALL = byteArrayOf(ESC, 0x4D, 0x01) // pequeña
+    val FONT_STD   = byteArrayOf(ESC, 0x4D, 0x00) // estándar
+}
+
+private const val SEP = "------------------------------" // ~30-32 columnas típico
+
+private fun writeln(out: java.io.OutputStream, text: String = "") {
+    out.write((text + "\n").toByteArray(UTF8))
+}
+private fun write(out: java.io.OutputStream, bytes: ByteArray) { out.write(bytes) }
+
+/** Alimentación (saltos) controlada para evitar corte de letras por guillotina */
+private fun feedLines(out: java.io.OutputStream, lines: Int) {
+    repeat(lines.coerceAtLeast(0)) { writeln(out) }
+}
+
+private fun headerCompactCentered(
+    out: java.io.OutputStream,
+    sucuName: String,
+    ubicacion: String
+) {
+    write(out, EscPos.ALIGN_CENTER)
+    write(out, EscPos.BOLD_ON)
+    write(out, EscPos.size(0x01)) // ancho x2 (resalta sin gastar alto)
+    writeln(out, sucuName)
+    write(out, EscPos.size(0x00))
+    write(out, EscPos.BOLD_OFF)
+
+    writeln(out, "PARKING CLUB")
+    writeln(out, ubicacion)
+    writeln(out, SEP)
+}
+
+/** ---------- QR ESC/POS: GS ( k  con tamaño ajustable ---------- */
+private fun printQRCodeWithSize(data: String, out: java.io.OutputStream, moduleSize: Int) {
+    // Modelo
+    out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00))
+    // Tamaño del módulo (entre 4 y 8 suele ser seguro). Pediste "un poco más grande" => 7.
+    val mod = moduleSize.coerceIn(4, 8).toByte()
+    out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, mod))
+    // Corrección de error (0x30 → nivel por defecto adecuado)
+    out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x30))
+    // Datos
+    val payload = data.toByteArray(UTF8)
+    val len = payload.size + 3
+    val pL = (len % 256).toByte()
+    val pH = (len / 256).toByte()
+    out.write(byteArrayOf(0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30))
+    out.write(payload)
+    // Imprimir
+    out.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30))
+}
+
+/** ---------- Conexión Bluetooth con fallback robusto ---------- */
+@SuppressLint("MissingPermission")
+private fun connectSocket(macAddress: String): BluetoothSocket {
+    val adapter = BluetoothAdapter.getDefaultAdapter()
+        ?: throw IllegalStateException("Este dispositivo no tiene Bluetooth")
+
+    if (!adapter.isEnabled) throw IllegalStateException("Bluetooth apagado")
+
+    // Verificar emparejamiento (mejor UX)
+    val bonded = adapter.bondedDevices.any { it.address.equals(macAddress, ignoreCase = true) }
+    if (!bonded) throw IllegalStateException("La impresora no está emparejada")
+
+    val device = adapter.getRemoteDevice(macAddress)
+    return try {
+        adapter.cancelDiscovery()
+        device.createRfcommSocketToServiceRecord(SPP_UUID).apply { connect() }
+    } catch (e1: Exception) {
+        Log.w(TAG, "SPP seguro falló: ${e1.message}")
+        try {
+            adapter.cancelDiscovery()
+            device.createInsecureRfcommSocketToServiceRecord(SPP_UUID).apply { connect() }
+        } catch (e2: Exception) {
+            Log.w(TAG, "SPP insecure falló: ${e2.message}")
+            val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+            (m.invoke(device, 1) as BluetoothSocket).apply { connect() }
+        }
+    }
+}
+
+/** ===========================================================
+ *                  TICKET DE INGRESO (COMPACTO)
+ *  =========================================================== */
 @SuppressLint("MissingPermission")
 suspend fun printTicketIngresoVerbose(
     macAddress: String,
@@ -24,79 +126,47 @@ suspend fun printTicketIngresoVerbose(
     placa: String,
     fecha: String,
     hora: String,
-    info: String,
+    info: String,       // leyenda/condiciones (puede venir de PrinterConfig.INFO_INGRESO)
     qrData: String
 ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
     try {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-            ?: return@withContext false to "Este dispositivo no tiene Bluetooth"
-        if (!adapter.isEnabled) return@withContext false to "Bluetooth apagado"
-
-        // Verificar emparejamiento primero
-        val bonded = adapter.bondedDevices.any { it.address.equals(macAddress, ignoreCase = true) }
-        if (!bonded) return@withContext false to "La impresora no está emparejada"
-
-        val device = adapter.getRemoteDevice(macAddress)
-
-        // Conexión con fallback (seguro → inseguro → canal 1)
-        val socket: BluetoothSocket = try {
-            adapter.cancelDiscovery()
-            device.createRfcommSocketToServiceRecord(SPP_UUID).apply { connect() }
-        } catch (e1: Exception) {
-            Log.w(TAG, "SPP seguro falló: ${e1.message}")
-            try {
-                adapter.cancelDiscovery()
-                device.createInsecureRfcommSocketToServiceRecord(SPP_UUID).apply { connect() }
-            } catch (e2: Exception) {
-                Log.w(TAG, "SPP insecure falló: ${e2.message}")
-                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                (m.invoke(device, 1) as BluetoothSocket).apply { connect() }
-            }
-        }
+        val socket = connectSocket(macAddress)
 
         socket.outputStream.use { out ->
-            fun write(b: ByteArray) = out.write(b)
-            fun writeln(t: String = "") = write((t + "\n").toByteArray(UTF8))
+            // Encabezado centrado
+            write(out, EscPos.ALIGN_CENTER)
+            headerCompactCentered(out, sucuName, ubicacion)
 
-            // Cabecera
-            write(byteArrayOf(0x1B, 0x45, 0x01))      // bold ON
-            write(byteArrayOf(0x1D, 0x21, 0x11))      // double W/H
-            write(byteArrayOf(0x1B, 0x61, 0x01))      // center
-            writeln(sucuName)
-            write(byteArrayOf(0x1D, 0x21, 0x00))
-            write(byteArrayOf(0x1B, 0x45, 0x00))      // bold OFF
-            writeln("PARKING CLUB")
-            writeln(ubicacion)
-            writeln("--------------------------------")
+            // Título centrado
+            write(out, EscPos.BOLD_ON)
+            writeln(out, "TICKET DE INGRESO")
+            write(out, EscPos.BOLD_OFF)
+            writeln(out, SEP)
 
-            // Título
-            write(byteArrayOf(0x1B, 0x45, 0x01))
-            writeln("TICKET DE INGRESO")
-            write(byteArrayOf(0x1B, 0x45, 0x00))
-            writeln("--------------------------------")
+            // Datos alineados a la IZQUIERDA (como pediste)
+            write(out, EscPos.ALIGN_LEFT)
+            write(out, EscPos.FONT_STD)
+            writeln(out, "Placa: $placa")
+            writeln(out, "Fecha: $fecha")
+            writeln(out, "Hora:  $hora \n\n")
 
-            // Datos
-            write(byteArrayOf(0x1B, 0x61, 0x00))      // left
-            writeln("Placa: $placa")
-            writeln("Fecha: $fecha")
-            writeln("Hora de ingreso: $hora")
-            writeln()
+            // QR centrado, tamaño un poco mayor (7) y SOLO 1 salto después
+            write(out, EscPos.ALIGN_CENTER)
+            printQRCodeWithSize(qrData, out, moduleSize = 7)
 
-            // QR (usa el ID del ingreso o lo que envíes en qrData)
-            write(byteArrayOf(0x1B, 0x61, 0x01))      // center
-            printQRCode(qrData, out)
-            write(byteArrayOf(0x1B, 0x61, 0x00))      // left
-            writeln()
+            // Leyenda compacta (centrada para estética general)
+            write(out, EscPos.ALIGN_CENTER)
+            write(out, EscPos.FONT_SMALL)
+            info.split('\n')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { writeln(out, it) }
+            write(out, EscPos.FONT_STD)
 
-            // Texto informativo
-            write(byteArrayOf(0x1B, 0x4D, 0x01))      // fuente pequeña
-            info.split('\n').forEach { writeln(it) }
-            write(byteArrayOf(0x1B, 0x4D, 0x00))
-
-            // Feed
-            writeln(); writeln(); writeln()
+            // Espacio extra para evitar cortar letras al final (3–4 líneas)
+            feedLines(out, 3)
             out.flush()
-            delay(1000L)
+            delay(250L)
         }
 
         try { socket.close() } catch (_: Exception) {}
@@ -105,31 +175,14 @@ suspend fun printTicketIngresoVerbose(
         Log.e(TAG, "Permiso faltante", se)
         false to "Falta permiso de Bluetooth"
     } catch (e: Exception) {
-        Log.e(TAG, "Error imprimiendo", e)
+        Log.e(TAG, "Error imprimiendo ingreso", e)
         false to (e.message ?: "Fallo desconocido")
     }
 }
 
-/** QR ESC/POS: GS ( k */
-fun printQRCode(data: String, outputStream: java.io.OutputStream) {
-    // Modelo
-    outputStream.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00))
-    // Tamaño módulo
-    outputStream.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x08))
-    // Corrección de error
-    outputStream.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x45, 0x30))
-    // Datos
-    val payload = data.toByteArray(UTF8)
-    val len = payload.size + 3
-    val pL = (len % 256).toByte()
-    val pH = (len / 256).toByte()
-    outputStream.write(byteArrayOf(0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30))
-    outputStream.write(payload)
-    // Imprimir
-    outputStream.write(byteArrayOf(0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30))
-}
-
-/** ---------- Ticket de SALIDA ---------- */
+/** ===========================================================
+ *                  TICKET DE SALIDA (COMPACTO)
+ *  =========================================================== */
 @SuppressLint("MissingPermission")
 suspend fun printTicketSalidaVerbose(
     macAddress: String,
@@ -140,69 +193,60 @@ suspend fun printTicketSalidaVerbose(
     horaIngreso: String,
     horaSalida: String,
     total: Double,
-    info: String,
+    info: String,      // leyenda/condiciones adicionales
     qrData: String
 ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
     try {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-            ?: return@withContext false to "Sin Bluetooth"
-        if (!adapter.isEnabled) return@withContext false to "Bluetooth apagado"
-
-        val device = adapter.getRemoteDevice(macAddress)
-        val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-
-        adapter.cancelDiscovery()
-        socket.connect()
+        val socket = connectSocket(macAddress)
 
         socket.outputStream.use { out ->
-            fun write(b: ByteArray) = out.write(b)
-            fun writeln(t: String = "") = write((t + "\n").toByteArray(UTF8))
+            // Encabezado centrado
+            write(out, EscPos.ALIGN_CENTER)
+            headerCompactCentered(out, sucuName, ubicacion)
 
-            // Cabecera
-            write(byteArrayOf(0x1B, 0x61, 0x01))
-            write(byteArrayOf(0x1D, 0x21, 0x11))
-            write(byteArrayOf(0x1B, 0x45, 0x01))
-            writeln(sucuName)
-            write(byteArrayOf(0x1D, 0x21, 0x00))
-            write(byteArrayOf(0x1B, 0x45, 0x00))
-            writeln(ubicacion)
-            writeln("--------------------------------")
-            write(byteArrayOf(0x1B, 0x45, 0x01))
-            writeln("TICKET DE SALIDA")
-            write(byteArrayOf(0x1B, 0x45, 0x00))
-            writeln("--------------------------------")
+            // Título centrado
+            write(out, EscPos.BOLD_ON)
+            writeln(out, "TICKET DE SALIDA")
+            write(out, EscPos.BOLD_OFF)
+            writeln(out, SEP)
 
-            // Detalle
-            write(byteArrayOf(0x1B, 0x61, 0x00))
-            writeln("Placa: $placa")
-            writeln("Fecha: $fecha")
-            writeln("Entrada: $horaIngreso")
-            writeln("Salida: $horaSalida")
-            writeln("--------------------------------")
+            // Datos alineados a la IZQUIERDA (como pediste)
+            write(out, EscPos.ALIGN_LEFT)
+            writeln(out, "Placa:   $placa")
+            writeln(out, "Fecha:   $fecha")
+            writeln(out, "Entrada: $horaIngreso")
+            writeln(out, "Salida:  $horaSalida")
+            writeln(out, SEP)
 
-            // Total
-            write(byteArrayOf(0x1B, 0x45, 0x01))
-            writeln("TOTAL:")
-            write(byteArrayOf(0x1D, 0x21, 0x11))
+            // Total centrado y destacado
+            write(out, EscPos.ALIGN_CENTER)
+            write(out, EscPos.BOLD_ON)
+            writeln(out, "TOTAL")
+            write(out, EscPos.size(0x01)) // ancho x2 compacto
             val totalTxt = String.format(Locale.getDefault(), "%.2f", total)
-            writeln("$ $totalTxt")
-            write(byteArrayOf(0x1D, 0x21, 0x00))
-            write(byteArrayOf(0x1B, 0x45, 0x00))
-            writeln("--------------------------------")
+            writeln(out, "$ $totalTxt")
+            write(out, EscPos.size(0x00))
+            write(out, EscPos.BOLD_OFF)
+            writeln(out, SEP)
 
-            // QR con el ID (opcional)
-            write(byteArrayOf(0x1B, 0x61, 0x01))
-            //printQRCode(qrData, out)
-            //write(byteArrayOf(0x1B, 0x61, 0x00))
+            // (Opcional) QR centrado: si quieres mostrar validación/código
+            // Ahorro de papel: lo dejamos comentado. Si lo activas, se respeta 1 salto.
+            // printQRCodeWithSize(qrData, out, moduleSize = 7)
+            // writeln(out) // exactamente 1 salto si activas el QR
 
-            // Políticas
-            write(byteArrayOf(0x1B, 0x61, 0x01))
-            writeln(info)
+            // Leyenda compacta centrada
+            write(out, EscPos.ALIGN_CENTER)
+            write(out, EscPos.FONT_SMALL)
+            info.split('\n')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { writeln(out, it) }
+            write(out, EscPos.FONT_STD)
 
-            // Feed
-            writeln(); writeln(); writeln()
+            // Espacio extra al final para evitar corte de letras
+            feedLines(out, 3)
             out.flush()
-            delay(1000L)
+            delay(250L)
         }
 
         try { socket.close() } catch (_: Exception) {}

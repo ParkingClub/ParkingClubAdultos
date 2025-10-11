@@ -60,9 +60,9 @@ fun RecaudacionesScreen(onBack: () -> Unit) {
         val info = buildString {
             appendLine("Tipo: ${r.tipoVehiculo} - ${r.jornada}")
             r.horasCobradas?.let { appendLine("Horas cobradas: $it") }
-            appendLine(PrinterConfig.EMAIL)
+            //appendLine(PrinterConfig.EMAIL)
             appendLine(PrinterConfig.PHONE)
-            appendLine("Reimpresión de recibo")
+            appendLine("Reimpresion de recibo")
         }
 
         printingId = r.id
