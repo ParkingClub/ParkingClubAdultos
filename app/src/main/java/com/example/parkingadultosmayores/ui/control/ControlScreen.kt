@@ -245,18 +245,15 @@ private fun doReprint(
     scope: kotlinx.coroutines.CoroutineScope
 ) {
     val tarifaTxt = String.format(Locale.getDefault(), "%.2f", record.tarifa)
+
+    // ✅ Heredamos la descripción global ya configurada en PrinterConfig.INFO_INGRESO
     val info = buildString {
-        appendLine("Este ticket confirma el ingreso de su")
-        appendLine("vehiculo.Por favor,conservelo y entregelo")
-        appendLine("al momento de su salida.Recuerda que")
-        appendLine("no nos hacemos responsables por objetos")
-        appendLine("dejados dentro del vehiculo")
-        appendLine("*Estamos abiertos las 24 horas*")
-        appendLine("Contamos con 90 plazas disponibles.")
-        appendLine("Llamanos al 0993403540")
-        appendLine("")
-        appendLine("Un gusto servirle!")
+        appendLine("Tipo: ${record.tipoVehiculo}  ·  Jornada: ${record.jornada}")
+        appendLine("Tarifa base: $ $tarifaTxt")
+        appendLine("--------------------------------")
+        appendLine(PrinterConfig.INFO_INGRESO)
     }
+
     setPrinting(record.id)
     scope.launch {
         val (ok, err) = printTicketIngresoVerbose(
@@ -304,4 +301,3 @@ private fun CounterPill(
         }
     }
 }
-

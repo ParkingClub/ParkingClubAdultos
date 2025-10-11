@@ -369,7 +369,7 @@ private fun finalizarEImprimir(
     val info = buildString {
         appendLine("Tipo: ${rec.tipoVehiculo} - ${rec.jornada}")
         appendLine("Horas cobradas: ${c.horasCobradas}")
-        appendLine(PrinterConfig.EMAIL)
+        //appendLine(PrinterConfig.EMAIL)
         appendLine(PrinterConfig.PHONE)
         appendLine("Gracias por su visita!")
     }
