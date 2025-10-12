@@ -1,3 +1,4 @@
+// file: ui/ingreso/IngresoScreen.kt
 package com.example.parkingadultosmayores.ui.ingreso
 
 import android.Manifest
@@ -35,6 +36,7 @@ import com.example.parkingadultosmayores.data.model.IngresoStore
 import kotlin.random.Random
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import com.example.parkingadultosmayores.bluetooth.PrinterConfig
+import com.example.parkingadultosmayores.domain.TarifaService
 
 // -------- Utilidades --------
 private fun newTicketId(): String {
@@ -84,7 +86,10 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
     // NUEVO: indicador de éxito para mostrar el mensaje y volver al inicio
     var showSuccess by remember { mutableStateOf(false) }
 
-    val tarifa = remember(tipoVehiculo, jornada) { calcularTarifa(tipoVehiculo, jornada) }
+    // Tarifa unificada (desde TarifaService)
+    val tarifa = remember(tipoVehiculo, jornada) {
+        TarifaService.tarifaBase(tipoVehiculo, jornada)
+    }
 
     // Al activar showSuccess, esperamos un instante y regresamos al inicio
     LaunchedEffect(showSuccess) {
@@ -134,7 +139,7 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
                     placa = placa,
                     tipoVehiculo = tipoVehiculo,
                     jornada = jornada,
-                    tarifa = tarifa,
+                    tarifa = tarifa, // mantiene referencia de la base informada al cliente
                     fecha = fecha,
                     hora = hora
                 )
@@ -243,7 +248,7 @@ fun IngresoScreen(placaInicial: String, onBack: () -> Unit) {
 
                 Spacer(Modifier.height(6.dp))
 
-                // Tarifa
+                // Tarifa (desde servicio unificado)
                 AssistChip(
                     onClick = { /* info opcional */ },
                     label = {
@@ -385,35 +390,12 @@ private fun OptionSelector(
                     onClick = { onOptionSelected(option) },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
-                    colors = buttonColors,
-                    contentPadding = PaddingValues(vertical = 12.dp)
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                    colors = buttonColors
                 ) {
                     Text(text = option, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
-    }
-}
-
-// --- Tarifas base unificadas ---
-private fun calcularTarifa(tipoVehiculo: String, jornada: String): Double {
-    return when (tipoVehiculo) {
-        "Carro" -> when (jornada) {
-            "Dia"      -> 1.0
-            "Noche"    -> 1.0
-            "Diario"   -> 3.5   // tarifa plana
-            "Nocturno" -> 4.0   // tarifa plana
-            "Completo" -> 3.5
-            else       -> 0.0
-        }
-        "Moto" -> when (jornada) {
-            "Dia"      -> 0.50
-            "Noche"    -> 1.0
-            "Diario"   -> 3.0   // tarifa plana
-            "Nocturno" -> 3.5   // tarifa plana
-            "Completo" -> 3.0
-            else       -> 0.0
-        }
-        else -> 0.0
     }
 }

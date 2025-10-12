@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.CarCrash
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.List
-// Iconos nuevos para los botones del diálogo
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.QrCodeScanner
@@ -59,9 +58,9 @@ import com.example.parkingadultosmayores.ui.salida.SalidaScreen
 // ======= NUEVO: imports para expiración y housekeeping =======
 import com.example.parkingadultosmayores.licensing.ExpirationGate
 import com.example.parkingadultosmayores.data.model.IngresoStore
-import com.example.parkingadultosmayores.data.model.RecaudacionStore   // <- NUEVO
+import com.example.parkingadultosmayores.data.model.RecaudacionStore
 import com.example.parkingadultosmayores.ui.qr.CameraPrewarmViewModel
-import com.example.parkingadultosmayores.ui.recaudaciones.RecaudacionesScreen // <- NUEVO
+import com.example.parkingadultosmayores.ui.recaudaciones.RecaudacionesScreen
 import kotlinx.coroutines.runBlocking
 // =============================================================
 
@@ -77,7 +76,7 @@ class MainActivity : ComponentActivity() {
         // Housekeeping diario: Ingresos + Recaudaciones (bucket del día)
         runBlocking {
             IngresoStore.dailyHousekeeping(applicationContext)
-            RecaudacionStore.dailyHousekeeping(applicationContext) // <- NUEVO
+            RecaudacionStore.dailyHousekeeping(applicationContext)
         }
 
         setContent {
@@ -123,8 +122,8 @@ fun AppRoot() {
                     }
                 },
                 onCancel = { nav.popBackStack() },
-                externalProvider = provider,             // << usa pre-warm
-                externalScanner = camVm.scanner          // << usa pre-warm
+                externalProvider = provider,             // pre-warm camera provider
+                externalScanner = camVm.scanner          // pre-warm barcode scanner
             )
         }
 
@@ -137,24 +136,33 @@ fun AppRoot() {
             })
         ) { backStack ->
             val idArg = backStack.arguments?.getString("id")
-            SalidaScreen(idInicial = idArg, onBack = { nav.popBackStack() })
+            // ✅ Corrección: añadimos onFinish para navegación explícita a Home/Menu
+            SalidaScreen(
+                idInicial = idArg,
+                onBack = { nav.popBackStack() },
+                onFinish = {
+                    nav.navigate("menu") {
+                        popUpTo(nav.graph.startDestinationId) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            )
         }
 
         composable("control") { ControlScreen(onBack = { nav.popBackStack() }) }
 
-        // -------- NUEVO: ruta para la pantalla de Recaudaciones del día --------
+        // Ruta para la pantalla de Recaudaciones del día
         composable("recaudaciones") {
             RecaudacionesScreen(onBack = { nav.popBackStack() })
         }
     }
 }
 
-
 @Composable
 fun MenuScreen(nav: NavHostController) {
     val context = LocalContext.current
 
-    // --- CAMBIO: De 'Sheet' a 'Dialog' para mayor claridad ---
+    // Diálogos
     var showIngresoDialog by remember { mutableStateOf(false) }
     var showSalidaDialog by remember { mutableStateOf(false) }
 
@@ -224,13 +232,13 @@ fun MenuScreen(nav: NavHostController) {
                     title = "Ingreso",
                     subtitle = "Registrar entrada",
                     icon = Icons.Filled.CarCrash,
-                    onClick = { showIngresoDialog = true } // CAMBIO: Muestra el diálogo de ingreso
+                    onClick = { showIngresoDialog = true }
                 ),
                 MenuItem(
                     title = "Salida",
                     subtitle = "Registrar cobro",
                     icon = Icons.Filled.ExitToApp,
-                    onClick = { showSalidaDialog = true } // CAMBIO: Muestra el diálogo de salida
+                    onClick = { showSalidaDialog = true }
                 ),
                 MenuItem(
                     title = "Control",
@@ -238,7 +246,7 @@ fun MenuScreen(nav: NavHostController) {
                     icon = Icons.Filled.List,
                     onClick = { nav.navigate("control") }
                 ),
-                // ---- NUEVO: acceso a Recaudaciones del día ----
+                // Acceso a Recaudaciones del día
                 MenuItem(
                     title = "Recaudaciones",
                     subtitle = "Cobros del día",
@@ -258,7 +266,7 @@ fun MenuScreen(nav: NavHostController) {
             }
         }
 
-        // --- NUEVO: Diálogo emergente para Ingreso ---
+        // Diálogo emergente para Ingreso
         if (showIngresoDialog) {
             OptionsDialog(
                 title = "Selecciona el tipo de ingreso",
@@ -291,8 +299,7 @@ fun MenuScreen(nav: NavHostController) {
             )
         }
 
-
-        // --- NUEVO: Diálogo emergente para Salida ---
+        // Diálogo emergente para Salida
         if (showSalidaDialog) {
             OptionsDialog(
                 title = "Selecciona el tipo de salida",
@@ -326,7 +333,6 @@ fun MenuScreen(nav: NavHostController) {
             )
         }
 
-
         // Overlays de progreso
         if (loadingIngreso || loadingSalida) {
             Box(
@@ -339,14 +345,14 @@ fun MenuScreen(nav: NavHostController) {
     }
 }
 
-// --- NUEVA ESTRUCTURA DE DATOS PARA LAS OPCIONES DEL DIÁLOGO ---
+// --- NUEVA ESTRUCTURA DE DATOS PARA LAS OPCIONES DEL DIALOGO ---
 data class DialogOption(
     val icon: ImageVector,
     val label: String,
     val onClick: () -> Unit
 )
 
-// --- NUEVO COMPOSABLE REUTILIZABLE PARA LOS DIÁLOGOS ---
+// --- COMPOSABLE REUTILIZABLE PARA LOS DIÁLOGOS ---
 @Composable
 fun OptionsDialog(
     title: String,
@@ -389,7 +395,7 @@ fun OptionsDialog(
     }
 }
 
-// --- NUEVO COMPOSABLE PARA LOS BOTONES GRANDES CON ICONOS ---
+// --- BOTÓN GRANDE CON ICONO PARA DIALOGOS ---
 @Composable
 fun OptionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(
@@ -410,7 +416,7 @@ fun OptionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-/* ====== UI helpers (Sin cambios) ====== */
+/* ====== UI helpers ====== */
 
 @Composable
 private fun TopBar() {
